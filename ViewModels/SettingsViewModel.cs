@@ -66,9 +66,15 @@ public class SettingsViewModel : ViewModelBase
             _mainWindowViewModel.ApplySettings(settings);
             MessageBox.Show("Settings saved.", "QuickPrompt", MessageBoxButton.OK, MessageBoxImage.Information);
 
+<<<<<<< codex/design-windows-app-like-microsoft-copilot-aakv5z
+            if (System.Windows.Application.Current.Windows.Count > 0)
+            {
+                foreach (Window window in System.Windows.Application.Current.Windows)
+=======
             if (Application.Current.Windows.Count > 0)
             {
                 foreach (Window window in Application.Current.Windows)
+>>>>>>> main
                 {
                     if (window is SettingsWindow)
                     {

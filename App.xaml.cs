@@ -5,7 +5,11 @@ using QuickPrompt.ViewModels;
 
 namespace QuickPrompt;
 
+<<<<<<< codex/design-windows-app-like-microsoft-copilot-aakv5z
+public partial class App : System.Windows.Application
+=======
 public partial class App : Application
+>>>>>>> main
 {
     private TrayIconService? _tray;
     private MainWindow? _mainWindow;
