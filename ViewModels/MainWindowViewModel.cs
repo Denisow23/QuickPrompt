@@ -41,7 +41,11 @@ public class MainWindowViewModel : ViewModelBase
         RefreshModelsCommand = new AsyncRelayCommand(RefreshModelsAsync);
         OpenSettingsCommand = new RelayCommand(() =>
         {
+<<<<<<< codex/design-windows-app-like-microsoft-copilot-aakv5z
             if (System.Windows.Application.Current is App app)
+=======
+            if (Application.Current is App app)
+>>>>>>> main
             {
                 var method = app.GetType().GetMethod("OpenSettings", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
                 method?.Invoke(app, null);
