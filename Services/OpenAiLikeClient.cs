@@ -55,7 +55,22 @@ public class OpenAiLikeClient
         if (!response.IsSuccessStatusCode)
             throw new InvalidOperationException($"Chat request failed ({(int)response.StatusCode}): {payload}");
 
-        var data = JsonSerializer.Deserialize<ChatCompletionResponse>(payload);
+        using var doc = JsonDocument.Parse(payload);
+        var root = doc.RootElement;
+
+        if (TryGetHttpStatusCode(root, out var wrappedStatusCode) && wrappedStatusCode >= 400)
+        {
+            throw new InvalidOperationException(
+                $"Провайдер вернул ошибку {wrappedStatusCode}: {ExtractErrorMessage(root)}");
+        }
+
+        var effectivePayload = UnwrapBodyIfPresent(root);
+        if (LooksLikeErrorObject(effectivePayload))
+        {
+            throw new InvalidOperationException($"Ошибка провайдера: {ExtractErrorMessage(effectivePayload)}");
+        }
+
+        var data = JsonSerializer.Deserialize<ChatCompletionResponse>(effectivePayload.GetRawText());
         var choices = data?.Choices ?? new List<Choice>();
         var content = choices.FirstOrDefault()?.Message?.Content;
         var parsed = ParseContent(content);
@@ -66,7 +81,7 @@ public class OpenAiLikeClient
 
         if (choices.Count == 0)
         {
-            throw new InvalidOperationException($"Пустой ответ сервера (нет choices). Raw payload: {payload}");
+            throw new InvalidOperationException($"Пустой ответ сервера (нет choices). Raw payload: {effectivePayload.GetRawText()}");
         }
 
         return "Пустой ответ от модели.";
@@ -129,5 +144,73 @@ public class OpenAiLikeClient
         }
 
         return content.ToString();
+    }
+
+    private static JsonElement UnwrapBodyIfPresent(JsonElement root)
+    {
+        if (root.ValueKind == JsonValueKind.Object &&
+            root.TryGetProperty("body", out var body) &&
+            body.ValueKind == JsonValueKind.Object)
+        {
+            return body;
+        }
+
+        return root;
+    }
+
+    private static bool TryGetHttpStatusCode(JsonElement root, out int code)
+    {
+        code = 0;
+        return root.ValueKind == JsonValueKind.Object &&
+               root.TryGetProperty("httpStatusCode", out var status) &&
+               status.ValueKind == JsonValueKind.Number &&
+               status.TryGetInt32(out code);
+    }
+
+    private static bool LooksLikeErrorObject(JsonElement root)
+    {
+        if (root.ValueKind != JsonValueKind.Object)
+        {
+            return false;
+        }
+
+        if (root.TryGetProperty("object", out var objectType) &&
+            objectType.ValueKind == JsonValueKind.String &&
+            string.Equals(objectType.GetString(), "error", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return root.TryGetProperty("error", out var errorElement) && errorElement.ValueKind != JsonValueKind.Null;
+    }
+
+    private static string ExtractErrorMessage(JsonElement root)
+    {
+        if (root.ValueKind == JsonValueKind.Object &&
+            root.TryGetProperty("error", out var errorElement))
+        {
+            if (errorElement.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(errorElement.GetString()))
+            {
+                return errorElement.GetString()!;
+            }
+
+            if (errorElement.ValueKind == JsonValueKind.Object &&
+                errorElement.TryGetProperty("message", out var messageElement) &&
+                messageElement.ValueKind == JsonValueKind.String &&
+                !string.IsNullOrWhiteSpace(messageElement.GetString()))
+            {
+                return messageElement.GetString()!;
+            }
+        }
+
+        if (root.ValueKind == JsonValueKind.Object &&
+            root.TryGetProperty("message", out var rootMessage) &&
+            rootMessage.ValueKind == JsonValueKind.String &&
+            !string.IsNullOrWhiteSpace(rootMessage.GetString()))
+        {
+            return rootMessage.GetString()!;
+        }
+
+        return root.GetRawText();
     }
 }

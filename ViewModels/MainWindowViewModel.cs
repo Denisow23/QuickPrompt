@@ -26,6 +26,7 @@ public class MainWindowViewModel : ViewModelBase
     private string _statusText = DefaultStatusText;
     private string _attachmentStatus = NoAttachmentText;
     private string? _attachedScreenshotBase64;
+    private string _attachedScreenshotMimeType = "image/png";
     private bool _hasMessages;
     private bool _isSending;
 
@@ -376,7 +377,7 @@ public class MainWindowViewModel : ViewModelBase
         content.Add(new MessageContentPart
         {
             Type = "image_url",
-            ImageUrl = new ImageUrlWrapper { Url = $"data:image/png;base64,{_attachedScreenshotBase64}" }
+            ImageUrl = new ImageUrlWrapper { Url = $"data:{_attachedScreenshotMimeType};base64,{_attachedScreenshotBase64}" }
         });
 
         return new ChatMessage { Role = "user", Content = content };
@@ -386,8 +387,10 @@ public class MainWindowViewModel : ViewModelBase
     {
         try
         {
-            _attachedScreenshotBase64 = _screenshotService.CapturePrimaryScreenAsBase64Png();
-            AttachmentStatus = $"Скриншот прикреплен ({_attachedScreenshotBase64.Length / 1024} KB, base64).";
+            var payload = _screenshotService.CapturePrimaryScreenAsPayload();
+            _attachedScreenshotBase64 = payload.Base64;
+            _attachedScreenshotMimeType = payload.MimeType;
+            AttachmentStatus = $"Скриншот прикреплен ({payload.Width}×{payload.Height}, {payload.ByteSize / 1024} KB, {payload.MimeType}).";
             OnPropertyChanged(nameof(HasAttachedScreenshot));
             OnPropertyChanged(nameof(AttachmentVisibility));
             OnPropertyChanged(nameof(AttachmentChipVisibility));
@@ -479,6 +482,7 @@ public class MainWindowViewModel : ViewModelBase
     private void ClearAttachment()
     {
         _attachedScreenshotBase64 = null;
+        _attachedScreenshotMimeType = "image/png";
         AttachmentStatus = NoAttachmentText;
         OnPropertyChanged(nameof(HasAttachedScreenshot));
         OnPropertyChanged(nameof(AttachmentVisibility));
