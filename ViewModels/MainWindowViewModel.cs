@@ -56,6 +56,7 @@ public class MainWindowViewModel : ViewModelBase
             HasMessages = Messages.Count > 0;
             NewChatCommand.RaiseCanExecuteChanged();
             OnPropertyChanged(nameof(HasConversation));
+            OnPropertyChanged(nameof(MessagesVisibility));
             OnPropertyChanged(nameof(TargetOverlayHeight));
             OnPropertyChanged(nameof(TargetOverlayWidth));
 
@@ -71,6 +72,11 @@ public class MainWindowViewModel : ViewModelBase
             OnPropertyChanged(nameof(TargetOverlayHeight));
             OnPropertyChanged(nameof(TargetOverlayWidth));
             OnPropertyChanged(nameof(StatusAccentText));
+            OnPropertyChanged(nameof(IsCompact));
+            OnPropertyChanged(nameof(MessagesVisibility));
+            OnPropertyChanged(nameof(AttachmentChipVisibility));
+            OnPropertyChanged(nameof(ControlsVisibility));
+            OnPropertyChanged(nameof(StatusVisibility));
         };
     }
 
@@ -151,6 +157,18 @@ public class MainWindowViewModel : ViewModelBase
 
     public bool HasConversation => HasMessages || _isSending;
 
+    public Visibility MessagesVisibility =>
+        HasConversation && !Overlay.IsCompact ? Visibility.Visible : Visibility.Collapsed;
+
+    public Visibility AttachmentChipVisibility =>
+        HasAttachedScreenshot && !Overlay.IsCompact ? Visibility.Visible : Visibility.Collapsed;
+
+    public bool IsCompact => Overlay.IsCompact;
+
+    public Visibility ControlsVisibility => Overlay.IsCompact ? Visibility.Collapsed : Visibility.Visible;
+
+    public Visibility StatusVisibility => Overlay.IsCompact ? Visibility.Collapsed : Visibility.Visible;
+
     public Visibility PromptPlaceholderVisibility =>
         string.IsNullOrWhiteSpace(PromptText) ? Visibility.Visible : Visibility.Collapsed;
 
@@ -217,13 +235,6 @@ public class MainWindowViewModel : ViewModelBase
         {
             return;
         }
-
-        if (HasConversation)
-        {
-            Overlay.SetState(OverlayVisualState.Expanded);
-            return;
-        }
-
         Overlay.SetState(OverlayVisualState.Compact);
     }
 
@@ -263,6 +274,8 @@ public class MainWindowViewModel : ViewModelBase
 
         _isSending = true;
         Overlay.SetState(OverlayVisualState.Generating);
+        OnPropertyChanged(nameof(HasConversation));
+        OnPropertyChanged(nameof(MessagesVisibility));
         OnPropertyChanged(nameof(TargetOverlayHeight));
 
         NewChatCommand.RaiseCanExecuteChanged();
@@ -333,6 +346,8 @@ public class MainWindowViewModel : ViewModelBase
         {
             _isSending = false;
             NewChatCommand.RaiseCanExecuteChanged();
+            OnPropertyChanged(nameof(HasConversation));
+            OnPropertyChanged(nameof(MessagesVisibility));
             OnPropertyChanged(nameof(TargetOverlayHeight));
         }
     }
@@ -367,6 +382,7 @@ public class MainWindowViewModel : ViewModelBase
             AttachmentStatus = $"Скриншот прикреплен ({_attachedScreenshotBase64.Length / 1024} KB, base64).";
             OnPropertyChanged(nameof(HasAttachedScreenshot));
             OnPropertyChanged(nameof(AttachmentVisibility));
+            OnPropertyChanged(nameof(AttachmentChipVisibility));
             SendCommand.RaiseCanExecuteChanged();
             NewChatCommand.RaiseCanExecuteChanged();
             StatusText = "Скриншот готов к отправке.";
@@ -457,6 +473,7 @@ public class MainWindowViewModel : ViewModelBase
         AttachmentStatus = NoAttachmentText;
         OnPropertyChanged(nameof(HasAttachedScreenshot));
         OnPropertyChanged(nameof(AttachmentVisibility));
+        OnPropertyChanged(nameof(AttachmentChipVisibility));
         SendCommand.RaiseCanExecuteChanged();
         NewChatCommand.RaiseCanExecuteChanged();
     }

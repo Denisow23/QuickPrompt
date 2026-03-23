@@ -12,7 +12,10 @@ namespace QuickPrompt.Services;
 
 public class OpenAiLikeClient
 {
-    private readonly HttpClient _httpClient = new();
+    private readonly HttpClient _httpClient = new()
+    {
+        Timeout = TimeSpan.FromSeconds(90)
+    };
     private AppSettings _settings;
 
     public OpenAiLikeClient(AppSettings settings)
@@ -54,12 +57,27 @@ public class OpenAiLikeClient
 
     private HttpRequestMessage CreateRequest(HttpMethod method, string path, object? body, string apiKey)
     {
+        if (string.IsNullOrWhiteSpace(_settings.BaseUrl))
+        {
+            throw new InvalidOperationException("Base URL не задан. Откройте настройки и укажите API endpoint.");
+        }
+
         var baseUrl = _settings.BaseUrl.TrimEnd('/');
-        var req = new HttpRequestMessage(method, $"{baseUrl}{path}");
+        if (!Uri.TryCreate($"{baseUrl}{path}", UriKind.Absolute, out var targetUri))
+        {
+            throw new InvalidOperationException("Base URL имеет неверный формат.");
+        }
+
+        var req = new HttpRequestMessage(method, targetUri);
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
 
-        foreach (var (name, value) in _settings.AdditionalHeaders)
+        foreach (var (name, value) in _settings.AdditionalHeaders ?? new Dictionary<string, string>())
         {
+            if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(value))
+            {
+                continue;
+            }
+
             req.Headers.TryAddWithoutValidation(name, value);
         }
 

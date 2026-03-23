@@ -28,6 +28,7 @@ public partial class MainWindow : Window
         Loaded += OnLoaded;
         DataContextChanged += OnDataContextChanged;
         Closing += OnWindowClosing;
+        IsVisibleChanged += OnIsVisibleChanged;
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e)
@@ -62,7 +63,7 @@ public partial class MainWindow : Window
         PromptTextBox.Focus();
 
         _vm?.ExpandFromUserActivity();
-        AnimateToVmSize();
+        AnimateToVmSize(immediate: true);
         RestartIdleTimer();
     }
 
@@ -179,7 +180,7 @@ public partial class MainWindow : Window
         }
     }
 
-    private void Root_OnMouseEnter(object sender, MouseEventArgs e)
+    private void Root_OnMouseEnter(object sender, System.Windows.Input.MouseEventArgs e)
     {
         _vm?.ExpandFromUserActivity();
         RestartIdleTimer();
@@ -190,6 +191,17 @@ public partial class MainWindow : Window
         _idleTimer.Stop();
         _vm?.CollapseIfIdle();
         AnimateToVmSize();
+    }
+
+    private void OnIsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
+    {
+        if (IsVisible)
+        {
+            RestartIdleTimer();
+            return;
+        }
+
+        _idleTimer.Stop();
     }
 
     private void RestartIdleTimer()
@@ -208,26 +220,37 @@ public partial class MainWindow : Window
         var targetHeight = _vm.TargetOverlayHeight;
         var targetWidth = _vm.TargetOverlayWidth;
 
+        var (targetLeft, targetTop) = ComputeTargetPlacement(targetWidth, targetHeight);
+
         if (immediate)
         {
             Height = targetHeight;
             Width = targetWidth;
-            PlaceWindowNearBottomCenter();
+            Left = targetLeft;
+            Top = targetTop;
             return;
         }
 
         var easing = new CubicEase { EasingMode = EasingMode.EaseOut };
         BeginAnimation(HeightProperty, new DoubleAnimation(targetHeight, TimeSpan.FromMilliseconds(250)) { EasingFunction = easing });
         BeginAnimation(WidthProperty, new DoubleAnimation(targetWidth, TimeSpan.FromMilliseconds(250)) { EasingFunction = easing });
-
-        PlaceWindowNearBottomCenter();
+        BeginAnimation(LeftProperty, new DoubleAnimation(targetLeft, TimeSpan.FromMilliseconds(250)) { EasingFunction = easing });
+        BeginAnimation(TopProperty, new DoubleAnimation(targetTop, TimeSpan.FromMilliseconds(250)) { EasingFunction = easing });
     }
 
     private void PlaceWindowNearBottomCenter()
     {
+        var (left, top) = ComputeTargetPlacement(Width, Height);
+        Left = left;
+        Top = top;
+    }
+
+    private static (double Left, double Top) ComputeTargetPlacement(double width, double height)
+    {
         var workArea = SystemParameters.WorkArea;
-        Left = workArea.Left + ((workArea.Width - Width) / 2);
-        Top = workArea.Bottom - Height - 28;
+        var left = workArea.Left + ((workArea.Width - width) / 2);
+        var top = workArea.Top + ((workArea.Height - height) / 2);
+        return (left, top);
     }
 
     private void HideButton_OnClick(object sender, RoutedEventArgs e)
