@@ -34,7 +34,8 @@ public partial class MainWindow : Window
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
         var helper = new WindowInteropHelper(this);
-        _hotkeyService.Register(helper.Handle, HotkeyModifiers.Control | HotkeyModifiers.Shift, 0x20, ToggleVisibility);
+        var settings = _vm?.CurrentSettings ?? new Models.AppSettings();
+        _hotkeyService.RegisterFromSettings(helper.Handle, settings, ToggleVisibility);
     }
 
     private void ToggleVisibility()
@@ -84,6 +85,7 @@ public partial class MainWindow : Window
         if (_vm is not null)
         {
             _vm.PropertyChanged -= OnVmPropertyChanged;
+            _vm.SettingsChanged -= OnVmSettingsChanged;
         }
 
         _vm = e.NewValue as MainWindowViewModel;
@@ -96,7 +98,14 @@ public partial class MainWindow : Window
         _messagesSource = _vm.Messages;
         _messagesSource.CollectionChanged += OnMessagesCollectionChanged;
         _vm.PropertyChanged += OnVmPropertyChanged;
+        _vm.SettingsChanged += OnVmSettingsChanged;
         AnimateToVmSize(immediate: true);
+    }
+
+    private void OnVmSettingsChanged(Models.AppSettings settings)
+    {
+        var helper = new WindowInteropHelper(this);
+        _hotkeyService.RegisterFromSettings(helper.Handle, settings, ToggleVisibility);
     }
 
     private void OnVmPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -189,8 +198,6 @@ public partial class MainWindow : Window
     private void OnIdleTimerTick(object? sender, EventArgs e)
     {
         _idleTimer.Stop();
-        _vm?.CollapseIfIdle();
-        AnimateToVmSize();
     }
 
     private void OnIsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
@@ -219,6 +226,10 @@ public partial class MainWindow : Window
 
         var targetHeight = _vm.TargetOverlayHeight;
         var targetWidth = _vm.TargetOverlayWidth;
+        if (!_vm.Overlay.IsCompact)
+        {
+            targetWidth = Math.Max(targetWidth, SystemParameters.WorkArea.Width * 0.75);
+        }
 
         var (targetLeft, targetTop) = ComputeTargetPlacement(targetWidth, targetHeight);
 
@@ -268,6 +279,7 @@ public partial class MainWindow : Window
         if (_vm is not null)
         {
             _vm.PropertyChanged -= OnVmPropertyChanged;
+            _vm.SettingsChanged -= OnVmSettingsChanged;
         }
 
         _idleTimer.Stop();

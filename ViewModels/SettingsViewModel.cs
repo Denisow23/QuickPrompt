@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Text.Json;
 using System.Windows;
 using QuickPrompt.Helpers;
@@ -18,6 +19,7 @@ public class SettingsViewModel : ViewModelBase
     private double _temperature = 0.2;
     private int _maxTokens = 1000;
     private string _additionalHeadersJson = "{}";
+    private string _activationMode = "CtrlShiftSpace";
 
     public SettingsViewModel(MainWindowViewModel mainWindowViewModel)
     {
@@ -32,9 +34,13 @@ public class SettingsViewModel : ViewModelBase
         Temperature = settings.Temperature;
         MaxTokens = settings.MaxTokens;
         AdditionalHeadersJson = JsonSerializer.Serialize(settings.AdditionalHeaders, new JsonSerializerOptions { WriteIndented = true });
+        ActivationMode = string.IsNullOrWhiteSpace(settings.ActivationMode) ? "CtrlShiftSpace" : settings.ActivationMode;
 
         SaveCommand = new RelayCommand(Save);
     }
+
+    public ObservableCollection<string> ActivationModes { get; } =
+        new(["CtrlShiftSpace", "DoubleShift", "MiddleMouse"]);
 
     public string BaseUrl
     {
@@ -96,6 +102,16 @@ public class SettingsViewModel : ViewModelBase
         }
     }
 
+    public string ActivationMode
+    {
+        get => _activationMode;
+        set
+        {
+            _activationMode = value;
+            OnPropertyChanged();
+        }
+    }
+
     public RelayCommand SaveCommand { get; }
 
     private void Save()
@@ -114,7 +130,10 @@ public class SettingsViewModel : ViewModelBase
                 DefaultModel = DefaultModel.Trim(),
                 Temperature = Temperature,
                 MaxTokens = MaxTokens,
-                AdditionalHeaders = additionalHeaders
+                AdditionalHeaders = additionalHeaders,
+                ActivationMode = ActivationMode,
+                HotkeyModifiers = HotkeyModifiers.Control | HotkeyModifiers.Shift,
+                HotkeyVirtualKey = 0x20
             };
 
             service.Save(settings);

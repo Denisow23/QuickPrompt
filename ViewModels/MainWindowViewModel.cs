@@ -29,6 +29,8 @@ public class MainWindowViewModel : ViewModelBase
     private bool _hasMessages;
     private bool _isSending;
 
+    public event Action<AppSettings>? SettingsChanged;
+
     public MainWindowViewModel(AppSettings settings, SettingsService settingsService, OpenAiLikeClient apiClient, ScreenshotService screenshotService)
     {
         _settings = settings;
@@ -45,6 +47,7 @@ public class MainWindowViewModel : ViewModelBase
         SendCommand = new AsyncRelayCommand(SendAsync, CanSend);
         NewChatCommand = new RelayCommand(() => ResetSession(showNotice: true), CanStartNewSession);
         CaptureScreenshotCommand = new RelayCommand(CaptureScreenshot);
+        RemoveAttachmentCommand = new RelayCommand(ClearAttachment, () => HasAttachedScreenshot);
         PasteClipboardCommand = new RelayCommand(PasteClipboard);
         RefreshModelsCommand = new AsyncRelayCommand(RefreshModelsAsync);
         OpenSettingsCommand = new RelayCommand(OpenSettings);
@@ -81,6 +84,8 @@ public class MainWindowViewModel : ViewModelBase
     }
 
     public OverlayStateStore Overlay { get; }
+
+    public AppSettings CurrentSettings => _settings;
 
     public ObservableCollection<string> Models { get; } = new();
 
@@ -161,7 +166,7 @@ public class MainWindowViewModel : ViewModelBase
         HasConversation && !Overlay.IsCompact ? Visibility.Visible : Visibility.Collapsed;
 
     public Visibility AttachmentChipVisibility =>
-        HasAttachedScreenshot && !Overlay.IsCompact ? Visibility.Visible : Visibility.Collapsed;
+        HasAttachedScreenshot ? Visibility.Visible : Visibility.Collapsed;
 
     public bool IsCompact => Overlay.IsCompact;
 
@@ -191,15 +196,17 @@ public class MainWindowViewModel : ViewModelBase
                 composed += 30;
             }
 
-            return Math.Clamp(composed, 160, 560);
+            return Math.Clamp(composed, 180, 760);
         }
     }
 
-    public double TargetOverlayWidth => Overlay.IsCompact ? 560 : 720;
+    public double TargetOverlayWidth => Overlay.IsCompact ? 860 : 1200;
 
     public RelayCommand CaptureScreenshotCommand { get; }
 
     public RelayCommand PasteClipboardCommand { get; }
+
+    public RelayCommand RemoveAttachmentCommand { get; }
 
     public RelayCommand NewChatCommand { get; }
 
@@ -253,6 +260,7 @@ public class MainWindowViewModel : ViewModelBase
         }
 
         StatusText = "Настройки обновлены.";
+        SettingsChanged?.Invoke(settings);
     }
 
     public void ResetSession(bool showNotice = false)
@@ -385,6 +393,7 @@ public class MainWindowViewModel : ViewModelBase
             OnPropertyChanged(nameof(AttachmentChipVisibility));
             SendCommand.RaiseCanExecuteChanged();
             NewChatCommand.RaiseCanExecuteChanged();
+            RemoveAttachmentCommand.RaiseCanExecuteChanged();
             StatusText = "Скриншот готов к отправке.";
             Overlay.SetState(OverlayVisualState.Focused);
         }
@@ -476,6 +485,7 @@ public class MainWindowViewModel : ViewModelBase
         OnPropertyChanged(nameof(AttachmentChipVisibility));
         SendCommand.RaiseCanExecuteChanged();
         NewChatCommand.RaiseCanExecuteChanged();
+        RemoveAttachmentCommand.RaiseCanExecuteChanged();
     }
 
     private ChatTranscriptItemViewModel AddMessage(string role, string markdown, bool hasAttachment = false, bool isPending = false)

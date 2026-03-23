@@ -59,7 +59,7 @@ public class OverlayStateStore : ViewModelBase
 
     public bool IsHidden => State == OverlayVisualState.Hidden;
 
-    public string PinGlyph => IsPinned ? "📌" : "⟂";
+    public string PinGlyph => IsPinned ? "●" : "○";
 
     public void SetState(OverlayVisualState state)
     {
