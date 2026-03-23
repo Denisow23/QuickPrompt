@@ -12,7 +12,7 @@ namespace QuickPrompt.ViewModels;
 
 public class MainWindowViewModel : ViewModelBase
 {
-    private const string DefaultStatusText = "Контекст хранится локально, пока окно открыто. Закрытие окна начинает новую сессию.";
+    private const string DefaultStatusText = "Контекст хранится локально, пока assistant открыт.";
     private const string NoAttachmentText = "Ничего не прикреплено";
 
     private readonly SettingsService _settingsService;
@@ -26,8 +26,11 @@ public class MainWindowViewModel : ViewModelBase
     private string _statusText = DefaultStatusText;
     private string _attachmentStatus = NoAttachmentText;
     private string? _attachedScreenshotBase64;
+    private string _attachedScreenshotMimeType = "image/png";
     private bool _hasMessages;
     private bool _isSending;
+
+    public event Action<AppSettings>? SettingsChanged;
 
     public MainWindowViewModel(AppSettings settings, SettingsService settingsService, OpenAiLikeClient apiClient, ScreenshotService screenshotService)
     {
@@ -36,22 +39,54 @@ public class MainWindowViewModel : ViewModelBase
         _apiClient = apiClient;
         _screenshotService = screenshotService;
 
+        Overlay = new OverlayStateStore();
+        Overlay.SetState(OverlayVisualState.Compact);
+
         _selectedModel = string.IsNullOrWhiteSpace(settings.DefaultModel) ? "gpt-4o-mini" : settings.DefaultModel;
         AddModelIfMissing(_selectedModel);
 
         SendCommand = new AsyncRelayCommand(SendAsync, CanSend);
         NewChatCommand = new RelayCommand(() => ResetSession(showNotice: true), CanStartNewSession);
         CaptureScreenshotCommand = new RelayCommand(CaptureScreenshot);
+        RemoveAttachmentCommand = new RelayCommand(ClearAttachment, () => HasAttachedScreenshot);
         PasteClipboardCommand = new RelayCommand(PasteClipboard);
         RefreshModelsCommand = new AsyncRelayCommand(RefreshModelsAsync);
         OpenSettingsCommand = new RelayCommand(OpenSettings);
+        TogglePinCommand = new RelayCommand(() => Overlay.TogglePinned());
+        CollapseCommand = new RelayCommand(() => Overlay.SetState(OverlayVisualState.Compact), () => !Overlay.IsPinned);
 
         Messages.CollectionChanged += (_, _) =>
         {
             HasMessages = Messages.Count > 0;
             NewChatCommand.RaiseCanExecuteChanged();
+            OnPropertyChanged(nameof(HasConversation));
+            OnPropertyChanged(nameof(MessagesVisibility));
+            OnPropertyChanged(nameof(TargetOverlayHeight));
+            OnPropertyChanged(nameof(TargetOverlayWidth));
+
+            if (Messages.Count > 0 && !_isSending)
+            {
+                Overlay.SetState(OverlayVisualState.Expanded);
+            }
+        };
+
+        Overlay.PropertyChanged += (_, _) =>
+        {
+            CollapseCommand.RaiseCanExecuteChanged();
+            OnPropertyChanged(nameof(TargetOverlayHeight));
+            OnPropertyChanged(nameof(TargetOverlayWidth));
+            OnPropertyChanged(nameof(StatusAccentText));
+            OnPropertyChanged(nameof(IsCompact));
+            OnPropertyChanged(nameof(MessagesVisibility));
+            OnPropertyChanged(nameof(AttachmentChipVisibility));
+            OnPropertyChanged(nameof(ControlsVisibility));
+            OnPropertyChanged(nameof(StatusVisibility));
         };
     }
+
+    public OverlayStateStore Overlay { get; }
+
+    public AppSettings CurrentSettings => _settings;
 
     public ObservableCollection<string> Models { get; } = new();
 
@@ -65,8 +100,18 @@ public class MainWindowViewModel : ViewModelBase
             _promptText = value;
             OnPropertyChanged();
             OnPropertyChanged(nameof(PromptPlaceholderVisibility));
+            OnPropertyChanged(nameof(TargetOverlayHeight));
             SendCommand.RaiseCanExecuteChanged();
             NewChatCommand.RaiseCanExecuteChanged();
+
+            if (string.IsNullOrWhiteSpace(_promptText) && !HasConversation && !_isSending)
+            {
+                Overlay.SetState(OverlayVisualState.Compact);
+            }
+            else if (!_isSending)
+            {
+                Overlay.SetState(OverlayVisualState.Focused);
+            }
         }
     }
 
@@ -90,6 +135,8 @@ public class MainWindowViewModel : ViewModelBase
         }
     }
 
+    public string StatusAccentText => Overlay.IsGenerating ? "Thinking" : Overlay.IsPinned ? "Pinned" : "Ready";
+
     public string AttachmentStatus
     {
         get => _attachmentStatus;
@@ -111,26 +158,93 @@ public class MainWindowViewModel : ViewModelBase
         {
             _hasMessages = value;
             OnPropertyChanged();
-            OnPropertyChanged(nameof(EmptyStateVisibility));
         }
     }
 
-    public Visibility EmptyStateVisibility => HasMessages ? Visibility.Collapsed : Visibility.Visible;
+    public bool HasConversation => HasMessages || _isSending;
+
+    public Visibility MessagesVisibility =>
+        HasConversation && !Overlay.IsCompact ? Visibility.Visible : Visibility.Collapsed;
+
+    public Visibility AttachmentChipVisibility =>
+        HasAttachedScreenshot ? Visibility.Visible : Visibility.Collapsed;
+
+    public bool IsCompact => Overlay.IsCompact;
+
+    public Visibility ControlsVisibility => Overlay.IsCompact ? Visibility.Collapsed : Visibility.Visible;
+
+    public Visibility StatusVisibility => Overlay.IsCompact ? Visibility.Collapsed : Visibility.Visible;
 
     public Visibility PromptPlaceholderVisibility =>
         string.IsNullOrWhiteSpace(PromptText) ? Visibility.Visible : Visibility.Collapsed;
+
+    public double TargetOverlayHeight
+    {
+        get
+        {
+            if (Overlay.IsCompact)
+            {
+                return 78;
+            }
+
+            var promptWeight = Math.Min(3, PromptText.Length / 100.0);
+            var messageWeight = Math.Min(16, Messages.Count) * 62;
+            var baseHeight = 220 + (promptWeight * 28);
+            var composed = baseHeight + messageWeight;
+
+            if (Overlay.IsGenerating)
+            {
+                composed += 30;
+            }
+
+            return Math.Clamp(composed, 220, 2200);
+        }
+    }
+
+    public double TargetOverlayWidth => Overlay.IsCompact ? 860 : 1200;
 
     public RelayCommand CaptureScreenshotCommand { get; }
 
     public RelayCommand PasteClipboardCommand { get; }
 
+    public RelayCommand RemoveAttachmentCommand { get; }
+
     public RelayCommand NewChatCommand { get; }
 
     public RelayCommand OpenSettingsCommand { get; }
 
+    public RelayCommand TogglePinCommand { get; }
+
+    public RelayCommand CollapseCommand { get; }
+
     public AsyncRelayCommand SendCommand { get; }
 
     public AsyncRelayCommand RefreshModelsCommand { get; }
+
+    public void ExpandFromUserActivity()
+    {
+        if (Overlay.IsHidden)
+        {
+            Overlay.SetState(OverlayVisualState.Compact);
+        }
+
+        if (_isSending)
+        {
+            Overlay.SetState(OverlayVisualState.Generating);
+            return;
+        }
+
+        Overlay.SetState(OverlayVisualState.Focused);
+    }
+
+    public void CollapseIfIdle()
+    {
+        if (Overlay.IsPinned || _isSending)
+        {
+            return;
+        }
+        Overlay.SetState(OverlayVisualState.Compact);
+    }
 
     public void ApplySettings(AppSettings settings)
     {
@@ -147,6 +261,7 @@ public class MainWindowViewModel : ViewModelBase
         }
 
         StatusText = "Настройки обновлены.";
+        SettingsChanged?.Invoke(settings);
     }
 
     public void ResetSession(bool showNotice = false)
@@ -155,6 +270,7 @@ public class MainWindowViewModel : ViewModelBase
         Messages.Clear();
         PromptText = string.Empty;
         ClearAttachment();
+        Overlay.SetState(OverlayVisualState.Compact);
         StatusText = showNotice ? "Начата новая пустая сессия." : DefaultStatusText;
     }
 
@@ -166,6 +282,11 @@ public class MainWindowViewModel : ViewModelBase
         }
 
         _isSending = true;
+        Overlay.SetState(OverlayVisualState.Generating);
+        OnPropertyChanged(nameof(HasConversation));
+        OnPropertyChanged(nameof(MessagesVisibility));
+        OnPropertyChanged(nameof(TargetOverlayHeight));
+
         NewChatCommand.RaiseCanExecuteChanged();
 
         var prompt = PromptText.Trim();
@@ -179,7 +300,7 @@ public class MainWindowViewModel : ViewModelBase
 
         var pendingAssistantBubble = AddMessage(
             role: "assistant",
-            markdown: "Думаю...",
+            markdown: "…",
             isPending: true);
 
         try
@@ -215,6 +336,7 @@ public class MainWindowViewModel : ViewModelBase
 
             PromptText = string.Empty;
             ClearAttachment();
+            Overlay.SetState(OverlayVisualState.Expanded);
         }
         catch (Exception ex)
         {
@@ -227,11 +349,15 @@ public class MainWindowViewModel : ViewModelBase
             pendingAssistantBubble.IsPending = false;
             pendingAssistantBubble.IsError = true;
             StatusText = "Не удалось получить ответ модели.";
+            Overlay.SetState(OverlayVisualState.Expanded);
         }
         finally
         {
             _isSending = false;
             NewChatCommand.RaiseCanExecuteChanged();
+            OnPropertyChanged(nameof(HasConversation));
+            OnPropertyChanged(nameof(MessagesVisibility));
+            OnPropertyChanged(nameof(TargetOverlayHeight));
         }
     }
 
@@ -251,7 +377,7 @@ public class MainWindowViewModel : ViewModelBase
         content.Add(new MessageContentPart
         {
             Type = "image_url",
-            ImageUrl = new ImageUrlWrapper { Url = $"data:image/png;base64,{_attachedScreenshotBase64}" }
+            ImageUrl = new ImageUrlWrapper { Url = $"data:{_attachedScreenshotMimeType};base64,{_attachedScreenshotBase64}" }
         });
 
         return new ChatMessage { Role = "user", Content = content };
@@ -261,13 +387,18 @@ public class MainWindowViewModel : ViewModelBase
     {
         try
         {
-            _attachedScreenshotBase64 = _screenshotService.CapturePrimaryScreenAsBase64Png();
-            AttachmentStatus = $"Скриншот прикреплен ({_attachedScreenshotBase64.Length / 1024} KB, base64).";
+            var payload = _screenshotService.CapturePrimaryScreenAsPayload();
+            _attachedScreenshotBase64 = payload.Base64;
+            _attachedScreenshotMimeType = payload.MimeType;
+            AttachmentStatus = $"Скриншот прикреплен ({payload.Width}×{payload.Height}, {payload.ByteSize / 1024} KB, {payload.MimeType}).";
             OnPropertyChanged(nameof(HasAttachedScreenshot));
             OnPropertyChanged(nameof(AttachmentVisibility));
+            OnPropertyChanged(nameof(AttachmentChipVisibility));
             SendCommand.RaiseCanExecuteChanged();
             NewChatCommand.RaiseCanExecuteChanged();
+            RemoveAttachmentCommand.RaiseCanExecuteChanged();
             StatusText = "Скриншот готов к отправке.";
+            Overlay.SetState(OverlayVisualState.Focused);
         }
         catch (Exception ex)
         {
@@ -294,6 +425,7 @@ public class MainWindowViewModel : ViewModelBase
             sb.Append(text);
             PromptText = sb.ToString();
             StatusText = "Текст из буфера обмена вставлен.";
+            Overlay.SetState(OverlayVisualState.Focused);
         }
         catch (Exception ex)
         {
@@ -350,11 +482,14 @@ public class MainWindowViewModel : ViewModelBase
     private void ClearAttachment()
     {
         _attachedScreenshotBase64 = null;
+        _attachedScreenshotMimeType = "image/png";
         AttachmentStatus = NoAttachmentText;
         OnPropertyChanged(nameof(HasAttachedScreenshot));
         OnPropertyChanged(nameof(AttachmentVisibility));
+        OnPropertyChanged(nameof(AttachmentChipVisibility));
         SendCommand.RaiseCanExecuteChanged();
         NewChatCommand.RaiseCanExecuteChanged();
+        RemoveAttachmentCommand.RaiseCanExecuteChanged();
     }
 
     private ChatTranscriptItemViewModel AddMessage(string role, string markdown, bool hasAttachment = false, bool isPending = false)

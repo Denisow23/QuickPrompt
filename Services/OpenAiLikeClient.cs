@@ -12,7 +12,10 @@ namespace QuickPrompt.Services;
 
 public class OpenAiLikeClient
 {
-    private readonly HttpClient _httpClient = new();
+    private readonly HttpClient _httpClient = new()
+    {
+        Timeout = TimeSpan.FromSeconds(90)
+    };
     private AppSettings _settings;
 
     public OpenAiLikeClient(AppSettings settings)
@@ -35,7 +38,12 @@ public class OpenAiLikeClient
             throw new InvalidOperationException($"Models request failed ({(int)response.StatusCode}): {payload}");
 
         var data = JsonSerializer.Deserialize<ModelsResponse>(payload);
-        return data?.Data.Select(x => x.Id).OrderBy(x => x).ToList() ?? new List<string>();
+        var items = data?.Data ?? new List<ModelItem>();
+        return items
+            .Where(x => !string.IsNullOrWhiteSpace(x.Id))
+            .Select(x => x.Id)
+            .OrderBy(x => x)
+            .ToList();
     }
 
     public async Task<string> SendChatAsync(ChatCompletionRequest requestBody, string apiKey)
@@ -47,19 +55,61 @@ public class OpenAiLikeClient
         if (!response.IsSuccessStatusCode)
             throw new InvalidOperationException($"Chat request failed ({(int)response.StatusCode}): {payload}");
 
-        var data = JsonSerializer.Deserialize<ChatCompletionResponse>(payload);
-        var content = data?.Choices.FirstOrDefault()?.Message?.Content;
-        return ParseContent(content) ?? "Пустой ответ от модели.";
+        using var doc = JsonDocument.Parse(payload);
+        var root = doc.RootElement;
+
+        if (TryGetHttpStatusCode(root, out var wrappedStatusCode) && wrappedStatusCode >= 400)
+        {
+            throw new InvalidOperationException(
+                $"Провайдер вернул ошибку {wrappedStatusCode}: {ExtractErrorMessage(root)}");
+        }
+
+        var effectivePayload = UnwrapBodyIfPresent(root);
+        if (LooksLikeErrorObject(effectivePayload))
+        {
+            throw new InvalidOperationException($"Ошибка провайдера: {ExtractErrorMessage(effectivePayload)}");
+        }
+
+        var data = JsonSerializer.Deserialize<ChatCompletionResponse>(effectivePayload.GetRawText());
+        var choices = data?.Choices ?? new List<Choice>();
+        var content = choices.FirstOrDefault()?.Message?.Content;
+        var parsed = ParseContent(content);
+        if (!string.IsNullOrWhiteSpace(parsed))
+        {
+            return parsed;
+        }
+
+        if (choices.Count == 0)
+        {
+            throw new InvalidOperationException($"Пустой ответ сервера (нет choices). Raw payload: {effectivePayload.GetRawText()}");
+        }
+
+        return "Пустой ответ от модели.";
     }
 
     private HttpRequestMessage CreateRequest(HttpMethod method, string path, object? body, string apiKey)
     {
+        if (string.IsNullOrWhiteSpace(_settings.BaseUrl))
+        {
+            throw new InvalidOperationException("Base URL не задан. Откройте настройки и укажите API endpoint.");
+        }
+
         var baseUrl = _settings.BaseUrl.TrimEnd('/');
-        var req = new HttpRequestMessage(method, $"{baseUrl}{path}");
+        if (!Uri.TryCreate($"{baseUrl}{path}", UriKind.Absolute, out var targetUri))
+        {
+            throw new InvalidOperationException("Base URL имеет неверный формат.");
+        }
+
+        var req = new HttpRequestMessage(method, targetUri);
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
 
-        foreach (var (name, value) in _settings.AdditionalHeaders)
+        foreach (var (name, value) in _settings.AdditionalHeaders ?? new Dictionary<string, string>())
         {
+            if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(value))
+            {
+                continue;
+            }
+
             req.Headers.TryAddWithoutValidation(name, value);
         }
 
@@ -94,5 +144,73 @@ public class OpenAiLikeClient
         }
 
         return content.ToString();
+    }
+
+    private static JsonElement UnwrapBodyIfPresent(JsonElement root)
+    {
+        if (root.ValueKind == JsonValueKind.Object &&
+            root.TryGetProperty("body", out var body) &&
+            body.ValueKind == JsonValueKind.Object)
+        {
+            return body;
+        }
+
+        return root;
+    }
+
+    private static bool TryGetHttpStatusCode(JsonElement root, out int code)
+    {
+        code = 0;
+        return root.ValueKind == JsonValueKind.Object &&
+               root.TryGetProperty("httpStatusCode", out var status) &&
+               status.ValueKind == JsonValueKind.Number &&
+               status.TryGetInt32(out code);
+    }
+
+    private static bool LooksLikeErrorObject(JsonElement root)
+    {
+        if (root.ValueKind != JsonValueKind.Object)
+        {
+            return false;
+        }
+
+        if (root.TryGetProperty("object", out var objectType) &&
+            objectType.ValueKind == JsonValueKind.String &&
+            string.Equals(objectType.GetString(), "error", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return root.TryGetProperty("error", out var errorElement) && errorElement.ValueKind != JsonValueKind.Null;
+    }
+
+    private static string ExtractErrorMessage(JsonElement root)
+    {
+        if (root.ValueKind == JsonValueKind.Object &&
+            root.TryGetProperty("error", out var errorElement))
+        {
+            if (errorElement.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(errorElement.GetString()))
+            {
+                return errorElement.GetString()!;
+            }
+
+            if (errorElement.ValueKind == JsonValueKind.Object &&
+                errorElement.TryGetProperty("message", out var messageElement) &&
+                messageElement.ValueKind == JsonValueKind.String &&
+                !string.IsNullOrWhiteSpace(messageElement.GetString()))
+            {
+                return messageElement.GetString()!;
+            }
+        }
+
+        if (root.ValueKind == JsonValueKind.Object &&
+            root.TryGetProperty("message", out var rootMessage) &&
+            rootMessage.ValueKind == JsonValueKind.String &&
+            !string.IsNullOrWhiteSpace(rootMessage.GetString()))
+        {
+            return rootMessage.GetString()!;
+        }
+
+        return root.GetRawText();
     }
 }
