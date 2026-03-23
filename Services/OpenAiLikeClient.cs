@@ -12,7 +12,10 @@ namespace QuickPrompt.Services;
 
 public class OpenAiLikeClient
 {
-    private readonly HttpClient _httpClient = new();
+    private readonly HttpClient _httpClient = new()
+    {
+        Timeout = TimeSpan.FromSeconds(90)
+    };
     private AppSettings _settings;
 
     public OpenAiLikeClient(AppSettings settings)
@@ -35,7 +38,12 @@ public class OpenAiLikeClient
             throw new InvalidOperationException($"Models request failed ({(int)response.StatusCode}): {payload}");
 
         var data = JsonSerializer.Deserialize<ModelsResponse>(payload);
-        return data?.Data.Select(x => x.Id).OrderBy(x => x).ToList() ?? new List<string>();
+        var items = data?.Data ?? new List<ModelItem>();
+        return items
+            .Where(x => !string.IsNullOrWhiteSpace(x.Id))
+            .Select(x => x.Id)
+            .OrderBy(x => x)
+            .ToList();
     }
 
     public async Task<string> SendChatAsync(ChatCompletionRequest requestBody, string apiKey)
@@ -48,18 +56,45 @@ public class OpenAiLikeClient
             throw new InvalidOperationException($"Chat request failed ({(int)response.StatusCode}): {payload}");
 
         var data = JsonSerializer.Deserialize<ChatCompletionResponse>(payload);
-        var content = data?.Choices.FirstOrDefault()?.Message?.Content;
-        return ParseContent(content) ?? "Пустой ответ от модели.";
+        var choices = data?.Choices ?? new List<Choice>();
+        var content = choices.FirstOrDefault()?.Message?.Content;
+        var parsed = ParseContent(content);
+        if (!string.IsNullOrWhiteSpace(parsed))
+        {
+            return parsed;
+        }
+
+        if (choices.Count == 0)
+        {
+            throw new InvalidOperationException($"Пустой ответ сервера (нет choices). Raw payload: {payload}");
+        }
+
+        return "Пустой ответ от модели.";
     }
 
     private HttpRequestMessage CreateRequest(HttpMethod method, string path, object? body, string apiKey)
     {
+        if (string.IsNullOrWhiteSpace(_settings.BaseUrl))
+        {
+            throw new InvalidOperationException("Base URL не задан. Откройте настройки и укажите API endpoint.");
+        }
+
         var baseUrl = _settings.BaseUrl.TrimEnd('/');
-        var req = new HttpRequestMessage(method, $"{baseUrl}{path}");
+        if (!Uri.TryCreate($"{baseUrl}{path}", UriKind.Absolute, out var targetUri))
+        {
+            throw new InvalidOperationException("Base URL имеет неверный формат.");
+        }
+
+        var req = new HttpRequestMessage(method, targetUri);
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
 
-        foreach (var (name, value) in _settings.AdditionalHeaders)
+        foreach (var (name, value) in _settings.AdditionalHeaders ?? new Dictionary<string, string>())
         {
+            if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(value))
+            {
+                continue;
+            }
+
             req.Headers.TryAddWithoutValidation(name, value);
         }
 
