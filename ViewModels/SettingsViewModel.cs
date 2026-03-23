@@ -23,7 +23,6 @@ public class SettingsViewModel : ViewModelBase
     {
         _mainWindowViewModel = mainWindowViewModel;
 
-        // Получаем текущее состояние через сохраненные настройки
         var settingsService = new SettingsService();
         var settings = settingsService.Load();
 
@@ -37,12 +36,65 @@ public class SettingsViewModel : ViewModelBase
         SaveCommand = new RelayCommand(Save);
     }
 
-    public string BaseUrl { get => _baseUrl; set { _baseUrl = value; OnPropertyChanged(); } }
-    public string ApiKey { get => _apiKey; set { _apiKey = value; OnPropertyChanged(); } }
-    public string DefaultModel { get => _defaultModel; set { _defaultModel = value; OnPropertyChanged(); } }
-    public double Temperature { get => _temperature; set { _temperature = value; OnPropertyChanged(); } }
-    public int MaxTokens { get => _maxTokens; set { _maxTokens = value; OnPropertyChanged(); } }
-    public string AdditionalHeadersJson { get => _additionalHeadersJson; set { _additionalHeadersJson = value; OnPropertyChanged(); } }
+    public string BaseUrl
+    {
+        get => _baseUrl;
+        set
+        {
+            _baseUrl = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public string ApiKey
+    {
+        get => _apiKey;
+        set
+        {
+            _apiKey = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public string DefaultModel
+    {
+        get => _defaultModel;
+        set
+        {
+            _defaultModel = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public double Temperature
+    {
+        get => _temperature;
+        set
+        {
+            _temperature = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public int MaxTokens
+    {
+        get => _maxTokens;
+        set
+        {
+            _maxTokens = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public string AdditionalHeadersJson
+    {
+        get => _additionalHeadersJson;
+        set
+        {
+            _additionalHeadersJson = value;
+            OnPropertyChanged();
+        }
+    }
 
     public RelayCommand SaveCommand { get; }
 
@@ -51,7 +103,10 @@ public class SettingsViewModel : ViewModelBase
         try
         {
             var service = new SettingsService();
-            var additionalHeaders = JsonSerializer.Deserialize<Dictionary<string, string>>(AdditionalHeadersJson) ?? new Dictionary<string, string>();
+            var additionalHeaders =
+                JsonSerializer.Deserialize<Dictionary<string, string>>(AdditionalHeadersJson)
+                ?? new Dictionary<string, string>();
+
             var settings = new AppSettings
             {
                 BaseUrl = BaseUrl.Trim(),
@@ -64,29 +119,25 @@ public class SettingsViewModel : ViewModelBase
 
             service.Save(settings);
             _mainWindowViewModel.ApplySettings(settings);
-            MessageBox.Show("Settings saved.", "QuickPrompt", MessageBoxButton.OK, MessageBoxImage.Information);
+            System.Windows.MessageBox.Show("Настройки сохранены.", "QuickPrompt", MessageBoxButton.OK, MessageBoxImage.Information);
 
-<<<<<<< codex/design-windows-app-like-microsoft-copilot-aakv5z
-            if (System.Windows.Application.Current.Windows.Count > 0)
+            if (System.Windows.Application.Current.Windows.Count <= 0)
             {
-                foreach (Window window in System.Windows.Application.Current.Windows)
-=======
-            if (Application.Current.Windows.Count > 0)
+                return;
+            }
+
+            foreach (Window window in System.Windows.Application.Current.Windows)
             {
-                foreach (Window window in Application.Current.Windows)
->>>>>>> main
+                if (window is SettingsWindow)
                 {
-                    if (window is SettingsWindow)
-                    {
-                        window.Close();
-                        break;
-                    }
+                    window.Close();
+                    break;
                 }
             }
         }
         catch (Exception ex)
         {
-            MessageBox.Show($"Не удалось сохранить настройки: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            System.Windows.MessageBox.Show($"Не удалось сохранить настройки: {ex.Message}", "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
 }

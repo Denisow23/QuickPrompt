@@ -16,6 +16,9 @@ public class ChatCompletionRequest
 
     [JsonPropertyName("max_tokens")]
     public int MaxTokens { get; set; }
+
+    [JsonPropertyName("stream")]
+    public bool Stream { get; set; } = false;
 }
 
 public class ChatMessage

@@ -12,6 +12,9 @@ namespace QuickPrompt.ViewModels;
 
 public class MainWindowViewModel : ViewModelBase
 {
+    private const string DefaultStatusText = "Контекст хранится локально, пока окно открыто. Закрытие окна начинает новую сессию.";
+    private const string NoAttachmentText = "Ничего не прикреплено";
+
     private readonly SettingsService _settingsService;
     private readonly OpenAiLikeClient _apiClient;
     private readonly ScreenshotService _screenshotService;
@@ -19,10 +22,12 @@ public class MainWindowViewModel : ViewModelBase
 
     private AppSettings _settings;
     private string _promptText = string.Empty;
-    private string _responseText = "Готово. Введите запрос.";
     private string _selectedModel;
-    private string _screenshotStatus = "Скрин не прикреплен";
+    private string _statusText = DefaultStatusText;
+    private string _attachmentStatus = NoAttachmentText;
     private string? _attachedScreenshotBase64;
+    private bool _hasMessages;
+    private bool _isSending;
 
     public MainWindowViewModel(AppSettings settings, SettingsService settingsService, OpenAiLikeClient apiClient, ScreenshotService screenshotService)
     {
@@ -31,29 +36,26 @@ public class MainWindowViewModel : ViewModelBase
         _apiClient = apiClient;
         _screenshotService = screenshotService;
 
-        _selectedModel = settings.DefaultModel;
-        Models.Add(settings.DefaultModel);
+        _selectedModel = string.IsNullOrWhiteSpace(settings.DefaultModel) ? "gpt-4o-mini" : settings.DefaultModel;
+        AddModelIfMissing(_selectedModel);
 
-        SendCommand = new AsyncRelayCommand(SendAsync, () => !string.IsNullOrWhiteSpace(PromptText));
-        ClearSessionCommand = new RelayCommand(ClearSession);
+        SendCommand = new AsyncRelayCommand(SendAsync, CanSend);
+        NewChatCommand = new RelayCommand(() => ResetSession(showNotice: true), CanStartNewSession);
         CaptureScreenshotCommand = new RelayCommand(CaptureScreenshot);
         PasteClipboardCommand = new RelayCommand(PasteClipboard);
         RefreshModelsCommand = new AsyncRelayCommand(RefreshModelsAsync);
-        OpenSettingsCommand = new RelayCommand(() =>
+        OpenSettingsCommand = new RelayCommand(OpenSettings);
+
+        Messages.CollectionChanged += (_, _) =>
         {
-<<<<<<< codex/design-windows-app-like-microsoft-copilot-aakv5z
-            if (System.Windows.Application.Current is App app)
-=======
-            if (Application.Current is App app)
->>>>>>> main
-            {
-                var method = app.GetType().GetMethod("OpenSettings", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-                method?.Invoke(app, null);
-            }
-        });
+            HasMessages = Messages.Count > 0;
+            NewChatCommand.RaiseCanExecuteChanged();
+        };
     }
 
     public ObservableCollection<string> Models { get; } = new();
+
+    public ObservableCollection<ChatTranscriptItemViewModel> Messages { get; } = new();
 
     public string PromptText
     {
@@ -62,17 +64,9 @@ public class MainWindowViewModel : ViewModelBase
         {
             _promptText = value;
             OnPropertyChanged();
-            (SendCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
-        }
-    }
-
-    public string ResponseText
-    {
-        get => _responseText;
-        set
-        {
-            _responseText = value;
-            OnPropertyChanged();
+            OnPropertyChanged(nameof(PromptPlaceholderVisibility));
+            SendCommand.RaiseCanExecuteChanged();
+            NewChatCommand.RaiseCanExecuteChanged();
         }
     }
 
@@ -86,45 +80,121 @@ public class MainWindowViewModel : ViewModelBase
         }
     }
 
-    public string ScreenshotStatus
+    public string StatusText
     {
-        get => _screenshotStatus;
-        set
+        get => _statusText;
+        private set
         {
-            _screenshotStatus = value;
+            _statusText = value;
             OnPropertyChanged();
         }
     }
 
+    public string AttachmentStatus
+    {
+        get => _attachmentStatus;
+        private set
+        {
+            _attachmentStatus = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public bool HasAttachedScreenshot => !string.IsNullOrWhiteSpace(_attachedScreenshotBase64);
+
+    public Visibility AttachmentVisibility => HasAttachedScreenshot ? Visibility.Visible : Visibility.Collapsed;
+
+    public bool HasMessages
+    {
+        get => _hasMessages;
+        private set
+        {
+            _hasMessages = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(EmptyStateVisibility));
+        }
+    }
+
+    public Visibility EmptyStateVisibility => HasMessages ? Visibility.Collapsed : Visibility.Visible;
+
+    public Visibility PromptPlaceholderVisibility =>
+        string.IsNullOrWhiteSpace(PromptText) ? Visibility.Visible : Visibility.Collapsed;
+
     public RelayCommand CaptureScreenshotCommand { get; }
+
     public RelayCommand PasteClipboardCommand { get; }
-    public RelayCommand ClearSessionCommand { get; }
+
+    public RelayCommand NewChatCommand { get; }
+
     public RelayCommand OpenSettingsCommand { get; }
+
     public AsyncRelayCommand SendCommand { get; }
+
     public AsyncRelayCommand RefreshModelsCommand { get; }
 
     public void ApplySettings(AppSettings settings)
     {
         _settings = settings;
         _apiClient.UpdateSettings(settings);
-        if (string.IsNullOrWhiteSpace(SelectedModel))
+
+        if (!string.IsNullOrWhiteSpace(settings.DefaultModel))
         {
-            SelectedModel = settings.DefaultModel;
+            AddModelIfMissing(settings.DefaultModel);
+            if (string.IsNullOrWhiteSpace(SelectedModel))
+            {
+                SelectedModel = settings.DefaultModel;
+            }
         }
+
+        StatusText = "Настройки обновлены.";
+    }
+
+    public void ResetSession(bool showNotice = false)
+    {
+        _sessionMessages.Clear();
+        Messages.Clear();
+        PromptText = string.Empty;
+        ClearAttachment();
+        StatusText = showNotice ? "Начата новая пустая сессия." : DefaultStatusText;
     }
 
     private async Task SendAsync()
     {
+        if (!CanSend())
+        {
+            return;
+        }
+
+        _isSending = true;
+        NewChatCommand.RaiseCanExecuteChanged();
+
+        var prompt = PromptText.Trim();
+        var hasAttachment = HasAttachedScreenshot;
+        ChatMessage? userMessage = null;
+
+        AddMessage(
+            role: "user",
+            markdown: BuildVisibleUserText(prompt, hasAttachment),
+            hasAttachment: hasAttachment);
+
+        var pendingAssistantBubble = AddMessage(
+            role: "assistant",
+            markdown: "Думаю...",
+            isPending: true);
+
         try
         {
             var apiKey = _settingsService.Unprotect(_settings.EncryptedApiKey);
             if (string.IsNullOrWhiteSpace(apiKey))
             {
-                ResponseText = "Ошибка: API ключ не задан. Откройте Settings.";
+                pendingAssistantBubble.Markdown = "**Ошибка:** API-ключ не задан. Откройте настройки и сохраните ключ.";
+                pendingAssistantBubble.IsPending = false;
+                pendingAssistantBubble.IsError = true;
+                StatusText = "Нужно сохранить API-ключ.";
                 return;
             }
 
-            var userMessage = BuildUserMessage(PromptText);
+            userMessage = BuildUserMessage(prompt);
             _sessionMessages.Add(userMessage);
 
             var request = new ChatCompletionRequest
@@ -135,19 +205,33 @@ public class MainWindowViewModel : ViewModelBase
                 MaxTokens = _settings.MaxTokens
             };
 
-            ResponseText = "Запрос отправлен...";
+            StatusText = "Запрос отправлен. Жду ответ модели.";
             var assistantText = await _apiClient.SendChatAsync(request, apiKey);
 
             _sessionMessages.Add(new ChatMessage { Role = "assistant", Content = assistantText });
-            ResponseText = assistantText;
+            pendingAssistantBubble.Markdown = assistantText;
+            pendingAssistantBubble.IsPending = false;
+            StatusText = "Ответ получен.";
 
             PromptText = string.Empty;
-            _attachedScreenshotBase64 = null;
-            ScreenshotStatus = "Скрин не прикреплен";
+            ClearAttachment();
         }
         catch (Exception ex)
         {
-            ResponseText = $"Ошибка: {ex.Message}";
+            if (userMessage is not null)
+            {
+                _sessionMessages.Remove(userMessage);
+            }
+
+            pendingAssistantBubble.Markdown = $"**Ошибка:** {ex.Message}";
+            pendingAssistantBubble.IsPending = false;
+            pendingAssistantBubble.IsError = true;
+            StatusText = "Не удалось получить ответ модели.";
+        }
+        finally
+        {
+            _isSending = false;
+            NewChatCommand.RaiseCanExecuteChanged();
         }
     }
 
@@ -158,11 +242,17 @@ public class MainWindowViewModel : ViewModelBase
             return new ChatMessage { Role = "user", Content = prompt };
         }
 
-        var content = new List<MessageContentPart>
+        var content = new List<MessageContentPart>();
+        if (!string.IsNullOrWhiteSpace(prompt))
         {
-            new() { Type = "text", Text = prompt },
-            new() { Type = "image_url", ImageUrl = new ImageUrlWrapper { Url = $"data:image/png;base64,{_attachedScreenshotBase64}" } }
-        };
+            content.Add(new MessageContentPart { Type = "text", Text = prompt });
+        }
+
+        content.Add(new MessageContentPart
+        {
+            Type = "image_url",
+            ImageUrl = new ImageUrlWrapper { Url = $"data:image/png;base64,{_attachedScreenshotBase64}" }
+        });
 
         return new ChatMessage { Role = "user", Content = content };
     }
@@ -172,11 +262,16 @@ public class MainWindowViewModel : ViewModelBase
         try
         {
             _attachedScreenshotBase64 = _screenshotService.CapturePrimaryScreenAsBase64Png();
-            ScreenshotStatus = $"Скрин прикреплен ({_attachedScreenshotBase64.Length / 1024} KB b64)";
+            AttachmentStatus = $"Скриншот прикреплен ({_attachedScreenshotBase64.Length / 1024} KB, base64).";
+            OnPropertyChanged(nameof(HasAttachedScreenshot));
+            OnPropertyChanged(nameof(AttachmentVisibility));
+            SendCommand.RaiseCanExecuteChanged();
+            NewChatCommand.RaiseCanExecuteChanged();
+            StatusText = "Скриншот готов к отправке.";
         }
         catch (Exception ex)
         {
-            ResponseText = $"Не удалось сделать скрин: {ex.Message}";
+            StatusText = $"Не удалось сделать скриншот: {ex.Message}";
         }
     }
 
@@ -184,28 +279,26 @@ public class MainWindowViewModel : ViewModelBase
     {
         try
         {
-            if (Clipboard.ContainsText())
+            if (!System.Windows.Clipboard.ContainsText())
             {
-                var text = Clipboard.GetText();
-                var sb = new StringBuilder(PromptText);
-                if (sb.Length > 0) sb.AppendLine();
-                sb.Append(text);
-                PromptText = sb.ToString();
+                return;
             }
+
+            var text = System.Windows.Clipboard.GetText();
+            var sb = new StringBuilder(PromptText);
+            if (sb.Length > 0)
+            {
+                sb.AppendLine();
+            }
+
+            sb.Append(text);
+            PromptText = sb.ToString();
+            StatusText = "Текст из буфера обмена вставлен.";
         }
         catch (Exception ex)
         {
-            ResponseText = $"Ошибка буфера обмена: {ex.Message}";
+            StatusText = $"Ошибка буфера обмена: {ex.Message}";
         }
-    }
-
-    private void ClearSession()
-    {
-        _sessionMessages.Clear();
-        _attachedScreenshotBase64 = null;
-        PromptText = string.Empty;
-        ResponseText = "Сессия очищена.";
-        ScreenshotStatus = "Скрин не прикреплен";
     }
 
     public async Task RefreshModelsAsync()
@@ -215,7 +308,7 @@ public class MainWindowViewModel : ViewModelBase
             var apiKey = _settingsService.Unprotect(_settings.EncryptedApiKey);
             if (string.IsNullOrWhiteSpace(apiKey))
             {
-                ResponseText = "Сначала сохраните API ключ в Settings.";
+                StatusText = "Сначала сохраните API-ключ в настройках.";
                 return;
             }
 
@@ -228,17 +321,75 @@ public class MainWindowViewModel : ViewModelBase
 
             if (Models.Count == 0)
             {
-                Models.Add(_settings.DefaultModel);
+                AddModelIfMissing(_settings.DefaultModel);
             }
 
-            if (!Models.Contains(SelectedModel))
+            if (string.IsNullOrWhiteSpace(SelectedModel) || !Models.Contains(SelectedModel))
             {
-                SelectedModel = _settings.DefaultModel;
+                SelectedModel = Models.Count > 0 ? Models[0] : _settings.DefaultModel;
             }
+
+            StatusText = "Список моделей обновлен.";
         }
         catch (Exception ex)
         {
-            ResponseText = $"Не удалось загрузить модели: {ex.Message}";
+            StatusText = $"Не удалось загрузить модели: {ex.Message}";
+        }
+    }
+
+    private bool CanSend()
+    {
+        return !string.IsNullOrWhiteSpace(PromptText) || HasAttachedScreenshot;
+    }
+
+    private bool CanStartNewSession()
+    {
+        return !_isSending && (HasMessages || !string.IsNullOrWhiteSpace(PromptText) || HasAttachedScreenshot);
+    }
+
+    private void ClearAttachment()
+    {
+        _attachedScreenshotBase64 = null;
+        AttachmentStatus = NoAttachmentText;
+        OnPropertyChanged(nameof(HasAttachedScreenshot));
+        OnPropertyChanged(nameof(AttachmentVisibility));
+        SendCommand.RaiseCanExecuteChanged();
+        NewChatCommand.RaiseCanExecuteChanged();
+    }
+
+    private ChatTranscriptItemViewModel AddMessage(string role, string markdown, bool hasAttachment = false, bool isPending = false)
+    {
+        var message = new ChatTranscriptItemViewModel(role, markdown, hasAttachment, isPending);
+        Messages.Add(message);
+        return message;
+    }
+
+    private string BuildVisibleUserText(string prompt, bool hasAttachment)
+    {
+        if (!string.IsNullOrWhiteSpace(prompt))
+        {
+            return prompt;
+        }
+
+        return hasAttachment
+            ? "_Отправлен скриншот без дополнительного текста._"
+            : string.Empty;
+    }
+
+    private void OpenSettings()
+    {
+        if (System.Windows.Application.Current is App app)
+        {
+            var method = app.GetType().GetMethod("OpenSettings", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            method?.Invoke(app, null);
+        }
+    }
+
+    private void AddModelIfMissing(string model)
+    {
+        if (!string.IsNullOrWhiteSpace(model) && !Models.Contains(model))
+        {
+            Models.Add(model);
         }
     }
 }

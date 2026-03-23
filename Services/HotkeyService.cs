@@ -20,19 +20,24 @@ public class HotkeyService : IDisposable
     private const int HotkeyId = 9000;
 
     private HwndSource? _source;
+    private HwndSourceHook? _hook;
 
     public void Register(IntPtr handle, HotkeyModifiers modifiers, int virtualKey, Action callback)
     {
         _source = HwndSource.FromHwnd(handle);
-        _source?.AddHook((hwnd, msg, wParam, lParam, ref bool handled) =>
+        _hook = (IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled) =>
         {
-            if (msg == WmHotkey && wParam.ToInt32() == HotkeyId)
+            if (msg != WmHotkey || wParam.ToInt32() != HotkeyId)
             {
-                callback();
-                handled = true;
+                return IntPtr.Zero;
             }
+
+            callback();
+            handled = true;
             return IntPtr.Zero;
-        });
+        };
+
+        _source?.AddHook(_hook);
 
         RegisterHotKey(handle, HotkeyId, (uint)modifiers, (uint)virtualKey);
     }
@@ -40,6 +45,11 @@ public class HotkeyService : IDisposable
     public void Dispose()
     {
         if (_source is null) return;
+        if (_hook is not null)
+        {
+            _source.RemoveHook(_hook);
+        }
+
         UnregisterHotKey(_source.Handle, HotkeyId);
     }
 
