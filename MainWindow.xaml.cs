@@ -130,7 +130,7 @@ public partial class MainWindow : Window
         Hide();
     }
 
-    private void PromptTextBox_OnPreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    private void PromptTextBox_OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
         RestartIdleTimer();
 
