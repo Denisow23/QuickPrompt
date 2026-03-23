@@ -12,6 +12,7 @@ public class AppSettings
     public int MaxTokens { get; set; } = 1000;
     public Dictionary<string, string> AdditionalHeaders { get; set; } = new();
     public string ActivationMode { get; set; } = "CtrlShiftSpace";
+    public string HotkeyGesture { get; set; } = "Ctrl+Shift+Space";
     public HotkeyModifiers HotkeyModifiers { get; set; } = HotkeyModifiers.Control | HotkeyModifiers.Shift;
     public int HotkeyVirtualKey { get; set; } = 0x20;
 }

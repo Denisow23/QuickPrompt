@@ -163,7 +163,18 @@
                         <TextBlock Margin="0,8,0,0"
                                    FontSize="12"
                                    Foreground="#94A9BC"
-                                   Text="Доступно: Ctrl+Shift+Space, DoubleShift, MiddleMouse." />
+                                   Text="Режим GlobalHotkey: свободный ввод сочетания клавиш ниже." />
+                    </StackPanel>
+
+                    <StackPanel Margin="0,12,0,0">
+                        <TextBlock Text="Сочетание клавиш (для GlobalHotkey)"
+                                   Style="{StaticResource FieldLabelStyle}" />
+                        <TextBox Text="{Binding HotkeyGesture}"
+                                 Style="{StaticResource FieldTextBoxStyle}" />
+                        <TextBlock Margin="0,8,0,0"
+                                   FontSize="12"
+                                   Foreground="#94A9BC"
+                                   Text="Примеры: Ctrl+Shift+Space, Alt+K, Ctrl+Alt+F9, Win+Shift+X." />
                     </StackPanel>
 
                     <TextBlock Text="Additional headers (JSON)"

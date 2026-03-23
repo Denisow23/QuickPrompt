@@ -226,6 +226,7 @@ public partial class MainWindow : Window
 
         var targetHeight = _vm.TargetOverlayHeight;
         var targetWidth = _vm.TargetOverlayWidth;
+        targetHeight = Math.Min(targetHeight, SystemParameters.WorkArea.Height * 0.75);
         if (!_vm.Overlay.IsCompact)
         {
             targetWidth = Math.Max(targetWidth, SystemParameters.WorkArea.Width * 0.75);

@@ -187,8 +187,8 @@ public class MainWindowViewModel : ViewModelBase
             }
 
             var promptWeight = Math.Min(3, PromptText.Length / 100.0);
-            var messageWeight = Math.Min(7, Messages.Count) * 46;
-            var baseHeight = 158 + (promptWeight * 24);
+            var messageWeight = Math.Min(16, Messages.Count) * 62;
+            var baseHeight = 220 + (promptWeight * 28);
             var composed = baseHeight + messageWeight;
 
             if (Overlay.IsGenerating)
@@ -196,7 +196,7 @@ public class MainWindowViewModel : ViewModelBase
                 composed += 30;
             }
 
-            return Math.Clamp(composed, 180, 760);
+            return Math.Clamp(composed, 220, 2200);
         }
     }
 

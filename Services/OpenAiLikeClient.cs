@@ -38,7 +38,12 @@ public class OpenAiLikeClient
             throw new InvalidOperationException($"Models request failed ({(int)response.StatusCode}): {payload}");
 
         var data = JsonSerializer.Deserialize<ModelsResponse>(payload);
-        return data?.Data.Select(x => x.Id).OrderBy(x => x).ToList() ?? new List<string>();
+        var items = data?.Data ?? new List<ModelItem>();
+        return items
+            .Where(x => !string.IsNullOrWhiteSpace(x.Id))
+            .Select(x => x.Id)
+            .OrderBy(x => x)
+            .ToList();
     }
 
     public async Task<string> SendChatAsync(ChatCompletionRequest requestBody, string apiKey)
@@ -51,8 +56,20 @@ public class OpenAiLikeClient
             throw new InvalidOperationException($"Chat request failed ({(int)response.StatusCode}): {payload}");
 
         var data = JsonSerializer.Deserialize<ChatCompletionResponse>(payload);
-        var content = data?.Choices.FirstOrDefault()?.Message?.Content;
-        return ParseContent(content) ?? "Пустой ответ от модели.";
+        var choices = data?.Choices ?? new List<Choice>();
+        var content = choices.FirstOrDefault()?.Message?.Content;
+        var parsed = ParseContent(content);
+        if (!string.IsNullOrWhiteSpace(parsed))
+        {
+            return parsed;
+        }
+
+        if (choices.Count == 0)
+        {
+            throw new InvalidOperationException($"Пустой ответ сервера (нет choices). Raw payload: {payload}");
+        }
+
+        return "Пустой ответ от модели.";
     }
 
     private HttpRequestMessage CreateRequest(HttpMethod method, string path, object? body, string apiKey)

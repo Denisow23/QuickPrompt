@@ -7,7 +7,7 @@
         Height="92"
         MinWidth="720"
         MinHeight="82"
-        MaxHeight="900"
+        MaxHeight="1600"
         WindowStyle="None"
         ResizeMode="NoResize"
         AllowsTransparency="True"
@@ -179,7 +179,7 @@
                          ItemsSource="{Binding Messages}"
                          Background="Transparent"
                          BorderThickness="0"
-                         MaxHeight="420"
+                         MaxHeight="1000"
                          ScrollViewer.CanContentScroll="False"
                          ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                          ScrollViewer.VerticalScrollBarVisibility="Auto">
