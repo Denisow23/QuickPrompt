@@ -151,6 +151,21 @@
                         </StackPanel>
                     </Grid>
 
+                    <StackPanel Margin="0,20,0,0">
+                        <TextBlock Text="Способ вызова assistant" Style="{StaticResource FieldLabelStyle}" />
+                        <ComboBox ItemsSource="{Binding ActivationModes}"
+                                  SelectedItem="{Binding ActivationMode}"
+                                  Background="#161E2A"
+                                  Foreground="#F4F8FD"
+                                  BorderBrush="#1FFFFFFF"
+                                  BorderThickness="1"
+                                  Padding="12,8" />
+                        <TextBlock Margin="0,8,0,0"
+                                   FontSize="12"
+                                   Foreground="#94A9BC"
+                                   Text="Доступно: Ctrl+Shift+Space, DoubleShift, MiddleMouse." />
+                    </StackPanel>
+
                     <TextBlock Text="Additional headers (JSON)"
                                Margin="0,20,0,8"
                                Style="{StaticResource FieldLabelStyle}" />
